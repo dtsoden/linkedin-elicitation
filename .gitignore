@@ -1,0 +1,7 @@
+# Your own working files. They hold private numbers and client details.
+/facts.md
+/drafts/
+/tracking/
+/research/
+__pycache__/
+.DS_Store

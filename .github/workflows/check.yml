@@ -1,0 +1,22 @@
+name: check
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Clean example passes
+        run: python tools/post-check.py examples/clean.md --facts examples/facts.md
+      - name: Bait example fails
+        run: "! python tools/post-check.py examples/bait.md --facts examples/facts.md"
+      - name: Tracker round trip
+        run: |
+          python tools/log.py --log /tmp/posts.csv add --technique range --posted 2026-01-05
+          python tools/log.py --log /tmp/posts.csv result 1 --impressions 2000 --comments 14
+          python tools/log.py --log /tmp/posts.csv report
+          python tools/log.py --log /tmp/posts.csv suggest
