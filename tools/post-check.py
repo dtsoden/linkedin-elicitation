@@ -67,28 +67,46 @@ THROAT_CLEARING = re.compile(
 )
 
 NUMBER = re.compile(
-    r"(?<![\w.])([$€£])?(\d[\d,]*(?:\.\d+)?)(?!st\b|nd\b|rd\b|th\b)(\s?(?:%|percent|k\b|K\b|m\b|M\b|x\b))?"
+    r"(?<![\w.])([$€£])?(\d[\d,]*(?:\.\d+)?)(?!st\b|nd\b|rd\b|th\b)"
+    r"(\s?(?:%|percent\b|k\b|K\b|m\b|M\b|x\b|million\b|billion\b))?"
+    r"(\s(?:dollars|pounds|euros)\b)?",
+    re.I,
 )
 
+UNIT_LABEL = {"percent": "a percentage", "money": "a money amount", "multiple": "a multiple", "count": "a plain count"}
 
-def number_value(raw, suffix):
+SCALE = {"k": 1_000, "m": 1_000_000, "million": 1_000_000, "billion": 1_000_000_000}
+
+
+def number_value(m):
+    """Return (kind, value) so "12 seats" can't vouch for "12%".
+
+    Kinds are percent, money, multiple, and count. "$6k" and "$6,000" are the
+    same money value, and "40%" and "40 percent" the same percent.
+    """
+    symbol, raw, suffix, currency_word = m.groups()
     try:
         value = float(raw.replace(",", ""))
     except ValueError:
         return None
     suffix = (suffix or "").strip().lower()
-    if suffix == "k":
-        value *= 1_000
-    elif suffix == "m":
-        value *= 1_000_000
-    return round(value, 4)
+    value *= SCALE.get(suffix, 1)
+    if suffix in ("%", "percent"):
+        kind = "percent"
+    elif symbol or currency_word:
+        kind = "money"
+    elif suffix == "x":
+        kind = "multiple"
+    else:
+        kind = "count"
+    return kind, round(value, 4)
 
 
 def numbers_in(text):
     for m in NUMBER.finditer(text):
-        value = number_value(m.group(2), m.group(3))
-        if value is not None:
-            yield m, value
+        number = number_value(m)
+        if number is not None:
+            yield m, number
 
 
 def load_facts(path):
@@ -130,17 +148,19 @@ def check(text, facts):
             add("ERROR", i, "format", "Unicode bold or italic letters; screen readers and search can't read them", line[:40])
 
         for m, value in numbers_in(line):
-            token = m.group(0)
+            token = m.group(0).strip()
             if facts is None:
                 add("ERROR", i, "number", "no facts file given, so this number can't be checked", token)
                 continue
             if value in facts:
                 continue
-            unit = m.group(1) or (m.group(3) or "").strip()
-            if not unit and 1900 <= value <= 2099 and value == int(value):
+            kind, amount = value
+            if kind == "count" and 1900 <= amount <= 2099 and amount == int(amount):
                 add("WARN", i, "number", "looks like a year; make sure the date is right", token)
-            elif not unit and value <= 10:
+            elif kind == "count" and amount <= 10:
                 add("WARN", i, "number", "small number not in facts.md; fine for counts, not for claims", token)
+            elif any(a == amount for _, a in facts):
+                add("ERROR", i, "number", f"facts.md has this number, but not as {UNIT_LABEL[kind]}; check the unit", token)
             else:
                 add("ERROR", i, "number", "not in facts.md; add it there with its source or take it out", token)
 
